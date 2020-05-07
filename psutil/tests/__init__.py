@@ -962,15 +962,12 @@ class TestMemoryLeak(PsutilTestCase):
         called fun repeadetly, and return the memory difference.
         """
         ncalls = 0
-        gc.collect()
         mem1 = self._get_mem()
         for x in iterator:
             ret = self._call(fun)
             ncalls += 1
             del x, ret
-        gc.collect()
         mem2 = self._get_mem()
-        self.assertEqual(gc.garbage, [])
         diff = mem2 - mem1
         if diff < 0:
             self._log("negative memory diff -%s" % (bytes2human(abs(diff))))
@@ -990,44 +987,38 @@ class TestMemoryLeak(PsutilTestCase):
         if self.verbose:
             print_color(msg, color="yellow", file=sys.stderr)
 
-    def execute(self, fun, times=times, warmup_times=warmup_times,
-                tolerance=tolerance, retry_for=retry_for):
+    def execute(self, fun, times=times, warmup_times=warmup_times):
         """Test a callable."""
-        if times <= 0:
-            raise ValueError("times must be > 0")
+        if times < 50:
+            raise ValueError("times must be < 50")
         if warmup_times < 0:
             raise ValueError("warmup_times must be >= 0")
-        if tolerance is not None and tolerance < 0:
-            raise ValueError("tolerance must be >= 0")
-        if retry_for is not None and retry_for < 0:
-            raise ValueError("retry_for must be >= 0")
 
         # warm up
         self._call_ntimes(fun, warmup_times)
-        mem1 = self._call_ntimes(fun, times)
+        self.assertEqual(gc.garbage, [])
 
-        if mem1 > tolerance:
-            # This doesn't necessarily mean we have a leak yet.
-            # At this point we assume that after having called the
-            # function so many times the memory usage is stabilized
-            # and if there are no leaks it should not increase
-            # anymore. Let's keep calling fun for N more seconds and
-            # fail if we notice any difference (ignore tolerance).
-            msg = "+%s after %s calls; try calling fun for another %s secs" % (
-                bytes2human(mem1), times, retry_for)
-            if not retry_for:
-                raise self.fail(msg)
-            else:
-                self._log(msg)
+        samples = []
+        n = times
+        grupby = 20
+        while n >= 0:
+            # Take a memory sample every 20 calls.
+            samples.append(self._call_ntimes(fun, grupby))
+            n -= grupby
 
-            mem2, ncalls = self._call_for(fun, retry_for)
-            if mem2 > mem1:
-                # failure
-                msg = "+%s memory increase after %s calls; " % (
-                    bytes2human(mem1), times)
-                msg += "+%s after another %s calls over %s secs" % (
-                    bytes2human(mem2), ncalls, retry_for)
-                raise self.fail(msg)
+        extra_mem = sum(samples)
+        tot_calls = len(samples) * grupby
+        if extra_mem <= 0:
+            return  # memory never increased
+
+        nonzeros = len([x for x in samples if x > 0])
+        nonzeros_perc = int(nonzeros / len(samples) * 100)
+        msg = "%s%% of the %s calls caused a memory increase (+%s memory)" % (
+            nonzeros_perc, tot_calls, bytes2human(extra_mem))
+        if nonzeros_perc > 10:
+            self.fail(msg + "\n%r" % samples)
+        else:
+            print(msg + "; consider this a normal fluctuation")  # NOQA
 
     def execute_w_exc(self, exc, fun, **kwargs):
         """Convenience method to test a callable while making sure it

@@ -420,7 +420,7 @@ class TestModuleFunctionsLeaks(TestMemoryLeak):
         # always opens and handle on Windows() (once)
         psutil.net_connections(kind='all')
         with create_sockets():
-            self.execute(lambda: psutil.net_connections(kind='all'), times=100)
+            self.execute(lambda: psutil.net_connections(kind='all'))
 
     def test_net_if_addrs(self):
         if WINDOWS:
@@ -428,8 +428,7 @@ class TestModuleFunctionsLeaks(TestMemoryLeak):
             # call (only).
             psutil.net_if_addrs()
         # Note: verified that on Windows this was a false positive.
-        self.execute(psutil.net_if_addrs,
-                     tolerance=80 * 1024 if WINDOWS else 4096)
+        self.execute(psutil.net_if_addrs)
 
     @unittest.skipIf(TRAVIS, "EPERM on travis")
     def test_net_if_stats(self):
