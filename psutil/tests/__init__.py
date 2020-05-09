@@ -938,9 +938,17 @@ class TestMemoryLeak(PsutilTestCase):
     retry_for = 3.0  # seconds
     verbose = True
 
+    @classmethod
+    def setUpClass(cls):
+        cls._thisproc = psutil.Process()
+
     def setUp(self):
-        self._thisproc = psutil.Process()
         gc.collect()
+        gc.disable()
+
+    @classmethod
+    def tearDownClass(cls):
+        gc.enable()
 
     def _get_mem(self):
         # USS is the closest thing we have to "real" memory usage and it
@@ -957,39 +965,26 @@ class TestMemoryLeak(PsutilTestCase):
     def _call(self, fun):
         return fun()
 
-    def _itercall(self, fun, iterator):
+    def _call_ntimes(self, fun, times):
         """Get 2 distinct memory samples, before and after having
         called fun repeadetly, and return the memory difference.
         """
-        ncalls = 0
-        gc.collect()
         mem1 = self._get_mem()
-        for x in iterator:
+        for x in range(times):
             ret = self._call(fun)
-            ncalls += 1
             del x, ret
-        gc.collect()
         mem2 = self._get_mem()
         diff = mem2 - mem1
         if diff < 0:
             self._log("negative memory diff -%s" % (bytes2human(abs(diff))))
-        return (diff, ncalls)
-
-    def _call_ntimes(self, fun, times):
-        return self._itercall(fun, range(times))[0]
-
-    def _call_for(self, fun, secs):
-        def iterator(secs):
-            stop_at = time.time() + secs
-            while time.time() < stop_at:
-                yield
-        return self._itercall(fun, iterator(secs))
+        return diff
 
     def _log(self, msg):
         if self.verbose:
             print_color(msg, color="yellow", file=sys.stderr)
 
-    def execute(self, fun, times=times, warmup_times=warmup_times):
+    def execute(self, fun, times=times, tolerance_perc=10,
+                warmup_times=warmup_times):
         """Test a callable."""
         if times < 50:
             raise ValueError("times must be < 50")
@@ -1001,29 +996,26 @@ class TestMemoryLeak(PsutilTestCase):
         self.assertEqual(gc.garbage, [])
 
         samples = []
-        n = times
-        grupby = 20
-        while n >= 0:
-            # Take a memory sample every 20 calls.
-            samples.append(self._call_ntimes(fun, grupby))
-            n -= grupby
+        for x in range(int(times)):
+            samples.append(self._call_ntimes(fun, 1))
 
         extra_mem = sum(samples)
-        tot_calls = len(samples) * grupby
+        tot_calls = len(samples)
         if extra_mem <= 0:
             return  # memory never increased
 
         nonzeros = len([x for x in samples if x > 0])
-        nonzeros_perc = int(nonzeros / len(samples) * 100)
+        nonzeros_perc = round(nonzeros / len(samples) * 100, 1)
         msg = "%s%% of the %s calls caused a memory increase: +%s total "
         msg += "memory, +%s per-call on average"
+        if nonzeros_perc < tolerance_perc:
+            msg += "; consider this a normal fluctuation"
+        msg += "\n%r" % (samples)
         msg = msg % (nonzeros_perc, tot_calls, bytes2human(extra_mem),
                      bytes2human(extra_mem / tot_calls))
-        if nonzeros_perc > 10:
-            self.fail(msg + "\n%r" % samples)
-        else:
-            msg += "; consider this a normal fluctuation" + "\n%r" % (samples)
-            print(msg)  # NOQA
+        self._log(msg)
+        if nonzeros_perc > tolerance_perc:
+            raise self.fail(msg)
 
     def execute_w_exc(self, exc, fun, **kwargs):
         """Convenience method to test a callable while making sure it
