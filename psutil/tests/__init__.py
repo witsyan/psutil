@@ -932,7 +932,7 @@ class TestMemoryLeak(PsutilTestCase):
                 self.execute(some_function)
     """
     # Configurable class attrs.
-    times = 1000
+    times = 500
     warmup_times = 10
     tolerance = 4096  # memory
     retry_for = 3.0  # seconds
@@ -962,11 +962,13 @@ class TestMemoryLeak(PsutilTestCase):
         called fun repeadetly, and return the memory difference.
         """
         ncalls = 0
+        gc.collect()
         mem1 = self._get_mem()
         for x in iterator:
             ret = self._call(fun)
             ncalls += 1
             del x, ret
+        gc.collect()
         mem2 = self._get_mem()
         diff = mem2 - mem1
         if diff < 0:
@@ -1013,12 +1015,15 @@ class TestMemoryLeak(PsutilTestCase):
 
         nonzeros = len([x for x in samples if x > 0])
         nonzeros_perc = int(nonzeros / len(samples) * 100)
-        msg = "%s%% of the %s calls caused a memory increase (+%s memory)" % (
-            nonzeros_perc, tot_calls, bytes2human(extra_mem))
+        msg = "%s%% of the %s calls caused a memory increase: +%s total "
+        msg += "memory, +%s per-call on average"
+        msg = msg % (nonzeros_perc, tot_calls, bytes2human(extra_mem),
+                     bytes2human(extra_mem / tot_calls))
         if nonzeros_perc > 10:
             self.fail(msg + "\n%r" % samples)
         else:
-            print(msg + "; consider this a normal fluctuation")  # NOQA
+            msg += "; consider this a normal fluctuation" + "\n%r" % (samples)
+            print(msg)  # NOQA
 
     def execute_w_exc(self, exc, fun, **kwargs):
         """Convenience method to test a callable while making sure it
