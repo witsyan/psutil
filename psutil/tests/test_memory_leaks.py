@@ -215,7 +215,7 @@ class TestProcessObjectLeaks(TestMemoryLeak):
     @skip_if_linux()
     def test_open_files(self):
         with open(get_testfn(), 'w'):
-            self.execute(self.proc.open_files, times=self.times / 2)
+            self.execute(self.proc.open_files)
 
     @unittest.skipIf(not HAS_MEMORY_MAPS, "not supported")
     @skip_if_linux()
@@ -420,8 +420,7 @@ class TestModuleFunctionsLeaks(TestMemoryLeak):
         # always opens and handle on Windows() (once)
         psutil.net_connections(kind='all')
         with create_sockets():
-            self.execute(lambda: psutil.net_connections(kind='all'),
-                         times=self.times / 2)
+            self.execute(lambda: psutil.net_connections(kind='all'))
 
     def test_net_if_addrs(self):
         if WINDOWS:
