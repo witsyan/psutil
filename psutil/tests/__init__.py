@@ -899,20 +899,11 @@ class TestMemoryLeak(PsutilTestCase):
     typically functions implemented in C which forgot to free() memory
     from the heap. It does so by checking whether the process memory
     usage increased before and after calling the function many times.
-    The logic:
-
-        call_fun_n_times()
-        if mem_diff > tolerance:
-            call_fun_for_3_secs()
-            if mem_diff > 0:
-                return 1  # failure
-        return 0  # success
 
     Note that this is hard (probably impossible) to do reliably, due
-    to how the OS handles memory, the GC and so on (memory can even
-    decrease!). In order to avoid false positives you should adjust the
-    tolerance of each individual test case, but most of the times you
-    won't have to.
+    to memory fluctiations deriving from how the OS handles memory, the GC
+    and so on (memory can even decrease!). As such the test uses some
+    "tricks".
 
     If available (Linux, OSX, Windows) USS memory is used for comparison,
     since it's supposed to be more precise, see:
@@ -932,10 +923,11 @@ class TestMemoryLeak(PsutilTestCase):
                 self.execute(some_function)
     """
     # Configurable class attrs.
-    times = 500
+    times = 100
     warmup_times = 10
-    tolerance = 4096  # memory
-    retry_for = 3.0  # seconds
+    groupby = 1
+    tolerance = 50 * 1024
+    tolerance_perc = 5
     verbose = True
 
     @classmethod
@@ -944,11 +936,6 @@ class TestMemoryLeak(PsutilTestCase):
 
     def setUp(self):
         gc.collect()
-        gc.disable()
-
-    @classmethod
-    def tearDownClass(cls):
-        gc.enable()
 
     def _get_mem(self):
         # USS is the closest thing we have to "real" memory usage and it
@@ -969,6 +956,7 @@ class TestMemoryLeak(PsutilTestCase):
         """Get 2 distinct memory samples, before and after having
         called fun repeadetly, and return the memory difference.
         """
+        gc.collect(generation=1)
         mem1 = self._get_mem()
         for x in range(times):
             ret = self._call(fun)
@@ -983,8 +971,9 @@ class TestMemoryLeak(PsutilTestCase):
         if self.verbose:
             print_color(msg, color="yellow", file=sys.stderr)
 
-    def execute(self, fun, times=times, tolerance_perc=10,
-                warmup_times=warmup_times):
+    def execute(self, fun, times=times, warmup_times=warmup_times,
+                groupby=groupby, tolerance=tolerance,
+                tolerance_perc=tolerance_perc):
         """Test a callable."""
         if times < 50:
             raise ValueError("times must be < 50")
@@ -996,8 +985,10 @@ class TestMemoryLeak(PsutilTestCase):
         self.assertEqual(gc.garbage, [])
 
         samples = []
-        for x in range(int(times)):
-            samples.append(self._call_ntimes(fun, 1))
+        n = times
+        while n >= 0:
+            samples.append(self._call_ntimes(fun, self.groupby))
+            n -= self.groupby
 
         extra_mem = sum(samples)
         tot_calls = len(samples)
@@ -1008,13 +999,15 @@ class TestMemoryLeak(PsutilTestCase):
         nonzeros_perc = round(nonzeros / len(samples) * 100, 1)
         msg = "%s%% of the %s calls caused a memory increase: +%s total "
         msg += "memory, +%s per-call on average"
-        if nonzeros_perc < tolerance_perc:
-            msg += "; consider this a normal fluctuation"
-        msg += "\n%r" % (samples)
         msg = msg % (nonzeros_perc, tot_calls, bytes2human(extra_mem),
                      bytes2human(extra_mem / tot_calls))
+
+        acceptable = nonzeros_perc < tolerance_perc and extra_mem < tolerance
+        if acceptable:
+            msg += "; consider this a normal fluctuation"
+        msg += "\n%r" % (samples)
         self._log(msg)
-        if nonzeros_perc > tolerance_perc:
+        if not acceptable:
             raise self.fail(msg)
 
     def execute_w_exc(self, exc, fun, **kwargs):
