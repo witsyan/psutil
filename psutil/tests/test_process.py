@@ -1522,11 +1522,12 @@ class TestPopen(PsutilTestCase):
             print(6)  # NOQA
             proc.terminate()
             print(7)  # NOQA
+        print(8)  # NOQA
         if POSIX:
             self.assertEqual(proc.wait(5), -signal.SIGTERM)
         else:
             self.assertEqual(proc.wait(5), signal.SIGTERM)
-        print(8)  # NOQA
+        print(9)  # NOQA
 
     def test_ctx_manager(self):
         with psutil.Popen([PYTHON_EXE, "-V"],
