@@ -1509,16 +1509,24 @@ class TestPopen(PsutilTestCase):
         cmd = [PYTHON_EXE, "-c", "import time; time.sleep(60);"]
         with psutil.Popen(cmd, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE) as proc:
+            print(1)  # NOQA
             proc.name()
+            print(2)  # NOQA
             proc.cpu_times()
+            print(3)  # NOQA
             proc.stdin
+            print(4)  # NOQA
             self.assertTrue(dir(proc))
+            print(5)  # NOQA
             self.assertRaises(AttributeError, getattr, proc, 'foo')
+            print(6)  # NOQA
             proc.terminate()
+            print(7)  # NOQA
         if POSIX:
             self.assertEqual(proc.wait(5), -signal.SIGTERM)
         else:
             self.assertEqual(proc.wait(5), signal.SIGTERM)
+        print(8)  # NOQA
 
     def test_ctx_manager(self):
         with psutil.Popen([PYTHON_EXE, "-V"],
