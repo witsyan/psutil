@@ -75,6 +75,23 @@ def get_ipv4_address(ifname):
                         struct.pack('256s', ifname))[20:24])
 
 
+def get_ipv6_address(ifname):
+    with open("/proc/net/if_inet6", 'rt') as f:
+        for line in f.readlines():
+            fields = line.split()
+            if fields[-1] == ifname:
+                break
+        else:
+            raise ValueError("could not find interface %r" % ifname)
+    unformatted = fields[0]
+    groups = []
+    for i in range(0, len(unformatted), 4):
+        groups.append(unformatted[i:i + 4])
+    formatted = ":".join(groups)
+    packed = socket.inet_pton(socket.AF_INET6, formatted)
+    return socket.inet_ntop(socket.AF_INET6, packed)
+
+
 def get_mac_address(ifname):
     import fcntl
     ifname = ifname[:15]
@@ -890,7 +907,15 @@ class TestSystemNetIfAddrs(PsutilTestCase):
                     self.assertEqual(addr.address, get_mac_address(name))
                 elif addr.family == socket.AF_INET:
                     self.assertEqual(addr.address, get_ipv4_address(name))
-                # TODO: test for AF_INET6 family
+                elif addr.family == socket.AF_INET6:
+                    # IPv6 addresses can have a percent symbol at the end.
+                    # E.g. these 2 are equivalent:
+                    # "fe80::1ff:fe23:4567:890a"
+                    # "fe80::1ff:fe23:4567:890a%eth0"
+                    # That is the "zone id" portion, which usually is the name
+                    # of the network interface.
+                    address = addr.address.split('%')[0]
+                    self.assertEqual(address, get_ipv6_address(name))
 
     # XXX - not reliable when having virtual NICs installed by Docker.
     # @unittest.skipIf(not which('ip'), "'ip' utility not available")
@@ -919,10 +944,14 @@ class TestSystemNetIfStats(PsutilTestCase):
             except RuntimeError:
                 pass
             else:
-                # Not always reliable.
-                # self.assertEqual(stats.isup, 'RUNNING' in out, msg=out)
+                self.assertEqual(stats.isup, 'RUNNING' in out, msg=out)
                 self.assertEqual(stats.mtu,
                                  int(re.findall(r'(?i)MTU[: ](\d+)', out)[0]))
+
+    def test_mtu(self):
+        for name, stats in psutil.net_if_stats().items():
+            with open("/sys/class/net/%s/mtu" % name, "rt") as f:
+                self.assertEqual(stats.mtu, int(f.read().strip()))
 
 
 @unittest.skipIf(not LINUX, "LINUX only")
@@ -1410,17 +1439,6 @@ class TestSensorsBattery(PsutilTestCase):
         acpi_value = int(out.split(",")[1].strip().replace('%', ''))
         psutil_value = psutil.sensors_battery().percent
         self.assertAlmostEqual(acpi_value, psutil_value, delta=1)
-
-    @unittest.skipIf(not which("acpi"), "acpi utility not available")
-    def test_power_plugged(self):
-        out = sh("acpi -b")
-        if 'unknown' in out.lower():
-            return unittest.skip("acpi output not reliable")
-        if 'discharging at zero rate' in out:
-            plugged = True
-        else:
-            plugged = "Charging" in out.split('\n')[0]
-        self.assertEqual(psutil.sensors_battery().power_plugged, plugged)
 
     def test_emulate_power_plugged(self):
         # Pretend the AC power cable is connected.

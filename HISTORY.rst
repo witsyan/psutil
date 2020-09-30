@@ -7,7 +7,11 @@ XXXX-XX-XX
 
 **Enhancements**
 
-- 893_: implement Process.environ() on BSD family. (patch by Armin Gruner)
+- 893_: implement `Process.environ()` on BSD family. (patch by Armin Gruner)
+- 1830_: [UNIX] `net_if_stats()`'s `isup` also checks whether the NIC is
+  running (meaning Wi-Fi or ethernet cable is connected).  (patch by Chris Burger)
+- 1837_: [Linux] improved battery detection and charge "secsleft" calculation
+  (patch by aristocratos)
 
 5.7.2
 =====
